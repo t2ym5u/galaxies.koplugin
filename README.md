@@ -1,18 +1,40 @@
-# Galaxies
+# galaxies.koplugin
 
-> **Status: stub — not yet implemented**
+A Galaxies (Tentai Show) puzzle plugin for [KOReader](https://github.com/koreader/koreader).
 
-## Description
+## Screenshot
 
-Divide the grid into rotationally symmetric regions, each centred on a given dot.
+*(Screenshot to be added.)*
 
-## Files to create
+## Rules
 
-- `board.lua` — game logic, puzzle generator, serialize/load
-- `board_widget.lua` — grid rendering and tap gestures
-- `screen.lua` — full-screen layout (buttons + board)
-- `main.lua` — PluginBase entry point
+Divide the grid into regions, one per galaxy symbol. Each region must be **rotationally symmetric by 180°** around its galaxy symbol. Every cell belongs to exactly one galaxy region.
 
-## Notes
+## Features
 
-Grid-based logic puzzle — use GridWidgetBase from game-common.
+- **Multiple grid sizes**
+- **Three difficulty levels** — Easy, Medium, Hard
+- **Symmetry preview** — highlights the symmetric counterpart of a selected cell
+- **Check** — validates symmetry and coverage
+- **Auto-save** — puzzle state saved and restored on next launch
+
+## Installation
+
+1. Download `galaxies.koplugin.zip` from the [latest release](../../releases/latest).
+2. Extract into the `plugins/` folder of your KOReader data directory.
+3. Restart KOReader.
+4. Open the menu → **Tools** → **Galaxies**.
+
+## Controls
+
+| Action | How |
+|--------|-----|
+| Assign cell to galaxy | Tap cell |
+| Cycle through galaxies | Tap cell again |
+| Check progress | Tap **Check** |
+| New puzzle | Tap **New** |
+| Show rules | Tap **Rules** |
+
+## License
+
+GPL-3.0 — see [LICENSE](LICENSE).
