@@ -114,7 +114,16 @@ local function generateGalaxies(n, num_galaxies)
         end
     end
 
-    -- Step 4: assign remaining unassigned cells to the nearest galaxy
+    -- Step 4: assign remaining unassigned cells, preserving rotational
+    -- symmetry. For each remaining cell, try galaxies nearest-first; commit
+    -- the cell (and its rotation partner under that galaxy's center, if the
+    -- partner is also still unassigned) to the first galaxy where that
+    -- doesn't conflict with a cell already locked into a different galaxy.
+    -- If no galaxy works for some cell, this whole attempt fails and the
+    -- caller's retry loop tries a fresh random center placement -- unlike
+    -- nearest-galaxy-regardless-of-symmetry (the old behavior), which
+    -- silently produced a region that violated the puzzle's own win
+    -- condition on almost every generation.
     local remaining = {}
     for r = 1, n do
         for c = 1, n do
@@ -126,15 +135,31 @@ local function generateGalaxies(n, num_galaxies)
     shuffle(remaining)
     for _, cell in ipairs(remaining) do
         local r, c = cell[1], cell[2]
-        -- Find nearest galaxy center (Manhattan distance)
-        local best_g, best_d = 1, n * n
-        for g = 1, num_g do
-            local cr, cc = centers[g][1], centers[g][2]
-            local d = math.abs(r - cr) + math.abs(c - cc)
-            if d < best_d then best_d = d; best_g = g end
+        if region[r][c] == 0 then  -- may already be claimed as an earlier cell's partner
+            local order = {}
+            for g = 1, num_g do order[g] = g end
+            table.sort(order, function(a, b)
+                local da = math.abs(r - centers[a][1]) + math.abs(c - centers[a][2])
+                local db = math.abs(r - centers[b][1]) + math.abs(c - centers[b][2])
+                return da < db
+            end)
+            local placed = false
+            for _, g in ipairs(order) do
+                local cr, cc = centers[g][1], centers[g][2]
+                local sr, sc = rotCell(r, c, cr, cc)
+                if inBounds(sr, sc, n) and (region[sr][sc] == 0 or region[sr][sc] == g) then
+                    region[r][c] = g
+                    galaxy_cells[g][#galaxy_cells[g] + 1] = { r, c }
+                    if (sr ~= r or sc ~= c) and region[sr][sc] == 0 then
+                        region[sr][sc] = g
+                        galaxy_cells[g][#galaxy_cells[g] + 1] = { sr, sc }
+                    end
+                    placed = true
+                    break
+                end
+            end
+            if not placed then return nil end
         end
-        region[r][c] = best_g
-        galaxy_cells[best_g][#galaxy_cells[best_g] + 1] = cell
     end
 
     return centers, region, galaxy_cells
@@ -195,7 +220,7 @@ function GalaxiesBoard:generate()
     local num_galaxies = math.max(3, math.floor(n * n / 6))
 
     local centers, region, gcells
-    for _ = 1, 20 do
+    for _ = 1, 3000 do
         centers, region, gcells = generateGalaxies(n, num_galaxies)
         if centers then break end
     end
