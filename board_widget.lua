@@ -14,7 +14,7 @@ local GALAXY_COLORS = {
     Blitbuffer.COLOR_WHITE,
     Blitbuffer.COLOR_GRAY_E,
     Blitbuffer.COLOR_GRAY_D,
-    Blitbuffer.COLOR_GRAY_C,
+    Blitbuffer.COLOR_LIGHT_GRAY,
     Blitbuffer.COLOR_GRAY_B,
     Blitbuffer.COLOR_GRAY_9,
 }
