@@ -4,7 +4,7 @@ A Galaxies (Tentai Show) puzzle plugin for [KOReader](https://github.com/koreade
 
 ## Screenshot
 
-*(Screenshot to be added.)*
+![Screenshot](images/galaxies.png)
 
 ## Rules
 

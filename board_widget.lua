@@ -90,9 +90,12 @@ function GalaxiesBoardWidget:paintTo(bb, x, y)
     for g = 1, board.num_galaxies do
         local center = board.centers[g]
         if center then
-            local cr, cc = center[1], center[2]
-            local cx = x + math.floor((cc - 1) * cell) + math.floor(cell / 2)
-            local cy = y + math.floor((cr - 1) * cell) + math.floor(cell / 2)
+            -- Centres are in doubled coordinates: cell (r,c) is at (2r-1,
+            -- 2c-1), so an odd value lands on a cell's middle and an even one
+            -- between cells. Pixel position is therefore half a cell per unit.
+            local R, C = center[1], center[2]
+            local cx = x + math.floor(C * cell / 2)
+            local cy = y + math.floor(R * cell / 2)
             -- Draw filled circle (approximated by a square for e-ink)
             bb:paintRect(cx - dot_r, cy - dot_r, dot_r * 2, dot_r * 2, C_CENTER)
             -- Draw galaxy number inside the dot if space allows

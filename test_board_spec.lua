@@ -48,29 +48,94 @@ describe("GalaxiesBoard", function()
         end)
 
         -- Regression guard for the 2026-07-17/2026-07-21 bug: step 4 used to
-        -- assign leftover cells to their nearest center by Manhattan
-        -- distance alone, with no check that the cell's 180-degree rotation
-        -- partner ended up in the same galaxy -- violated symmetry in
-        -- ~100% of sampled generations. Fixed by making step 4 try each
-        -- galaxy nearest-first and only commit a cell (with its partner)
-        -- when that preserves symmetry, retrying generation from scratch
-        -- if any cell has nowhere valid to go.
+        -- Centres live in DOUBLED coordinates: cell (r,c) sits at
+        -- (2r-1, 2c-1), so an odd coordinate is a cell's middle and an even
+        -- one falls between cells. The partner of (r,c) about centre (R,C) is
+        -- therefore (R-r+1, C-c+1).
+        --
+        -- This is what fixed the plugin. Restricting centres to cell middles
+        -- forces every region to be odd-sized about its centre in both axes,
+        -- and an n x n grid usually cannot be tiled that way: measured on the
+        -- old generator, every board at n >= 7 fell back to "one galaxy
+        -- covering everything", and only 8 of 20 were valid at n = 6.
+        local function partner(b, g, r, c)
+            local R, C = b.centers[g][1], b.centers[g][2]
+            return R - r + 1, C - c + 1
+        end
+
         it("solution_region is rotationally symmetric around every galaxy's center", function()
-            local b = newBoard(6)
-            for g = 1, b.num_galaxies do
-                local cr, cc = b.centers[g][1], b.centers[g][2]
-                for r = 1, b.n do
-                    for c = 1, b.n do
-                        if b.solution_region[r][c] == g then
-                            local sr, sc = 2 * cr - r, 2 * cc - c
-                            assert.is_true(sr >= 1 and sr <= b.n and sc >= 1 and sc <= b.n,
-                                ("galaxy %d cell [%d][%d]'s rotation partner is out of bounds"):format(g, r, c))
-                            assert.are.equal(g, b.solution_region[sr][sc],
-                                ("galaxy %d cell [%d][%d]'s rotation partner is not in the same galaxy"):format(g, r, c))
+            for _, n in ipairs({ 6, 7, 8 }) do
+                local b = newBoard(n)
+                for g = 1, b.num_galaxies do
+                    for r = 1, b.n do
+                        for c = 1, b.n do
+                            if b.solution_region[r][c] == g then
+                                local sr, sc = partner(b, g, r, c)
+                                assert.is_true(sr >= 1 and sr <= b.n and sc >= 1 and sc <= b.n,
+                                    ("n=%d galaxy %d cell [%d][%d]'s rotation partner is out of bounds"):format(n, g, r, c))
+                                assert.are.equal(g, b.solution_region[sr][sc],
+                                    ("n=%d galaxy %d cell [%d][%d]'s rotation partner is in another galaxy"):format(n, g, r, c))
+                            end
                         end
                     end
                 end
-                assert.are.equal(g, b.solution_region[cr][cc])
+            end
+        end)
+
+        it("every galaxy is a single connected region", function()
+            for _, n in ipairs({ 6, 7, 8 }) do
+                local b = newBoard(n)
+                for g = 1, b.num_galaxies do
+                    local cells = {}
+                    for r = 1, b.n do
+                        for c = 1, b.n do
+                            if b.solution_region[r][c] == g then cells[#cells + 1] = { r, c } end
+                        end
+                    end
+                    assert.is_true(#cells > 0)
+                    local seen, stack, count = {}, { cells[1] }, 0
+                    seen[cells[1][1] * 100 + cells[1][2]] = true
+                    while #stack > 0 do
+                        local cur = table.remove(stack)
+                        count = count + 1
+                        for _, d in ipairs({ {1,0}, {-1,0}, {0,1}, {0,-1} }) do
+                            local nr, nc = cur[1] + d[1], cur[2] + d[2]
+                            local k = nr * 100 + nc
+                            if nr >= 1 and nr <= b.n and nc >= 1 and nc <= b.n
+                               and b.solution_region[nr][nc] == g and not seen[k] then
+                                seen[k] = true
+                                stack[#stack + 1] = { nr, nc }
+                            end
+                        end
+                    end
+                    assert.are.equal(#cells, count,
+                        ("n=%d galaxy %d is split into disconnected pieces"):format(n, g))
+                end
+            end
+        end)
+
+        it("never falls back to one galaxy covering the whole grid", function()
+            -- The old generator retried 3000 times and then did exactly that,
+            -- every single time at n >= 7. A board with one galaxy is not a
+            -- puzzle: the answer is "all of it".
+            for _, n in ipairs({ 6, 7, 8 }) do
+                for _ = 1, 10 do
+                    local b = newBoard(n)
+                    assert.is_true(b.num_galaxies > 1,
+                        ("n=%d produced a single-galaxy board"):format(n))
+                end
+            end
+        end)
+
+        it("covers every cell", function()
+            for _, n in ipairs({ 6, 7, 8 }) do
+                local b = newBoard(n)
+                for r = 1, b.n do
+                    for c = 1, b.n do
+                        assert.is_true(b.solution_region[r][c] > 0,
+                            ("n=%d cell [%d][%d] belongs to no galaxy"):format(n, r, c))
+                    end
+                end
             end
         end)
 
