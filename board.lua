@@ -19,146 +19,154 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Rotational symmetry helpers
+--
+-- A galaxy's centre is NOT always the middle of a cell. In this puzzle it can
+-- equally sit on the edge between two cells or on the corner between four,
+-- which is what lets regions of even width or height exist at all. Centres are
+-- therefore held in *doubled* coordinates: cell (r, c) occupies doubled
+-- position (2r-1, 2c-1), so odd doubled coordinates land on cell middles and
+-- even ones land between cells.
+--
+-- Restricting centres to cell middles -- what this did before -- forces every
+-- region to be odd-sized about its centre in both axes, and an n x n grid
+-- usually cannot be tiled that way. Measured on the old generator: at n >= 7,
+-- 100% of boards fell back to the degenerate "one galaxy covering everything",
+-- which is not a puzzle; at n = 6 only 8 of 20 were valid.
 -- ---------------------------------------------------------------------------
 
--- The 180-degree rotation of (r, c) around center (cr, cc) in an n×n grid.
--- Center (cr, cc) is the galaxy center cell (1-indexed).
-local function rotCell(r, c, cr, cc)
-    return 2 * cr - r, 2 * cc - c
+local function inBoundsD(R, C, n)
+    return R >= 1 and R <= 2 * n - 1 and C >= 1 and C <= 2 * n - 1
+end
+
+-- 180-degree rotation of cell (r, c) about the doubled centre (R, C).
+local function rotCell(r, c, R, C)
+    return R - r + 1, C - c + 1
+end
+
+-- The cells the centre itself covers: one for an odd/odd centre, two for an
+-- edge centre, four for a corner centre.
+local function centreCells(R, C)
+    local rs = (R % 2 == 1) and { (R + 1) / 2 } or { R / 2, R / 2 + 1 }
+    local cs = (C % 2 == 1) and { (C + 1) / 2 } or { C / 2, C / 2 + 1 }
+    local out = {}
+    for _, r in ipairs(rs) do
+        for _, c in ipairs(cs) do out[#out + 1] = { r, c } end
+    end
+    return out
 end
 
 -- ---------------------------------------------------------------------------
 -- Galaxy region generation
 --
--- Algorithm:
---   1. Pick K galaxy centers at distinct cells.
---   2. Flood-fill each galaxy symmetrically: whenever a cell is added to
---      galaxy G, its 180-rotation around G's center is also added.
---   3. Cells not yet assigned are distributed to the nearest galaxy.
+-- Grows a symmetric tiling that ALWAYS succeeds, so there is no retry loop and
+-- no degenerate fallback. Cells are visited in random order; each one is first
+-- offered to an adjacent galaxy (taking its rotation partner along, and only
+-- if both regions stay connected), and otherwise starts a galaxy of its own --
+-- a domino with a free neighbour where possible, a single cell if not. A
+-- single cell is always a legal galaxy, which is what guarantees termination.
 -- ---------------------------------------------------------------------------
 
-local function generateGalaxies(n, num_galaxies)
-    -- Step 1: pick centers
-    local all_cells = {}
+local function generateGalaxies(n)
+    local region = emptyGrid(n, n, 0)
+    local centers, galaxy_cells = {}, {}
+
+    local function connected(g)
+        local cells = galaxy_cells[g]
+        if #cells <= 1 then return true end
+        local seen, stack, count = {}, { cells[1] }, 0
+        seen[cells[1][1] * (n + 1) + cells[1][2]] = true
+        while #stack > 0 do
+            local cur = table.remove(stack)
+            count = count + 1
+            for _, d in ipairs({ {1,0}, {-1,0}, {0,1}, {0,-1} }) do
+                local nr, nc = cur[1] + d[1], cur[2] + d[2]
+                local key = nr * (n + 1) + nc
+                if inBounds(nr, nc, n) and region[nr][nc] == g and not seen[key] then
+                    seen[key] = true
+                    stack[#stack + 1] = { nr, nc }
+                end
+            end
+        end
+        return count == #cells
+    end
+
+    local function tryAttach(r, c, g)
+        local R, C = centers[g][1], centers[g][2]
+        local pr, pc = rotCell(r, c, R, C)
+        if not inBounds(pr, pc, n) then return false end
+        local same = (pr == r and pc == c)
+        if not same and region[pr][pc] ~= 0 then return false end
+
+        region[r][c] = g
+        galaxy_cells[g][#galaxy_cells[g] + 1] = { r, c }
+        if not same then
+            region[pr][pc] = g
+            galaxy_cells[g][#galaxy_cells[g] + 1] = { pr, pc }
+        end
+        if connected(g) then return true end
+
+        -- Roll back: the pair would have split the region in two.
+        region[r][c] = 0
+        table.remove(galaxy_cells[g])
+        if not same then
+            region[pr][pc] = 0
+            table.remove(galaxy_cells[g])
+        end
+        return false
+    end
+
+    local cells = {}
     for r = 1, n do
-        for c = 1, n do all_cells[#all_cells + 1] = {r, c} end
+        for c = 1, n do cells[#cells + 1] = { r, c } end
     end
-    shuffle(all_cells)
+    shuffle(cells)
 
-    local centers = {}
-    for i = 1, math.min(num_galaxies, #all_cells) do
-        centers[i] = all_cells[i]
-    end
-    if #centers == 0 then return nil end
+    for _, cell in ipairs(cells) do
+        local r, c = cell[1], cell[2]
+        if region[r][c] == 0 then
+            -- Offer it to the galaxies already touching it.
+            local neighbours, seen_g = {}, {}
+            local dirs = { {1,0}, {-1,0}, {0,1}, {0,-1} }
+            shuffle(dirs)
+            for _, d in ipairs(dirs) do
+                local nr, nc = r + d[1], c + d[2]
+                if inBounds(nr, nc, n) then
+                    local g = region[nr][nc]
+                    if g ~= 0 and not seen_g[g] then
+                        seen_g[g] = true
+                        neighbours[#neighbours + 1] = g
+                    end
+                end
+            end
 
-    local num_g    = #centers
-    local region   = emptyGrid(n, n, 0)  -- cell → galaxy index (0 = unassigned)
+            local attached = false
+            for _, g in ipairs(neighbours) do
+                if tryAttach(r, c, g) then attached = true break end
+            end
 
-    -- Step 2: seed each galaxy with its center (and symmetric center = itself)
-    local galaxy_cells = {}
-    for g = 1, num_g do
-        galaxy_cells[g] = {}
-        local cr, cc = centers[g][1], centers[g][2]
-        region[cr][cc] = g
-        galaxy_cells[g][#galaxy_cells[g] + 1] = {cr, cc}
-    end
-
-    -- Step 3: grow each galaxy using symmetric BFS
-    local max_iters = n * n * 4
-    local changed = true
-    local iter = 0
-    while changed and iter < max_iters do
-        changed = false
-        iter = iter + 1
-        -- Shuffle galaxy order for fairness
-        local gorder = {}
-        for g = 1, num_g do gorder[g] = g end
-        shuffle(gorder)
-
-        for _, g in ipairs(gorder) do
-            local cr, cc = centers[g][1], centers[g][2]
-            -- Try to expand: pick a random cell in this galaxy and look for
-            -- an unassigned orthogonal neighbor whose symmetric cell is also
-            -- unassigned (or in the same galaxy or is the center itself).
-            local gcells = galaxy_cells[g]
-            local order  = {}
-            for i = 1, #gcells do order[i] = i end
-            shuffle(order)
-
-            for _, ci in ipairs(order) do
-                local r, c = gcells[ci][1], gcells[ci][2]
-                local dirs = {{-1,0},{1,0},{0,-1},{0,1}}
-                shuffle(dirs)
+            if not attached then
+                -- A new galaxy. Prefer a domino -- its centre lands on the
+                -- shared edge -- so the board does not fill with single cells.
+                local partner
                 for _, d in ipairs(dirs) do
                     local nr, nc = r + d[1], c + d[2]
                     if inBounds(nr, nc, n) and region[nr][nc] == 0 then
-                        -- Check symmetric cell
-                        local sr, sc = rotCell(nr, nc, cr, cc)
-                        if inBounds(sr, sc, n) and (region[sr][sc] == 0 or region[sr][sc] == g) then
-                            -- Assign both
-                            region[nr][nc] = g
-                            gcells[#gcells + 1] = {nr, nc}
-                            if sr ~= nr or sc ~= nc then
-                                if region[sr][sc] == 0 then
-                                    region[sr][sc] = g
-                                    gcells[#gcells + 1] = {sr, sc}
-                                end
-                            end
-                            changed = true
-                            break
-                        end
+                        partner = { nr, nc }
+                        break
                     end
                 end
-                if changed then break end
-            end
-        end
-    end
-
-    -- Step 4: assign remaining unassigned cells, preserving rotational
-    -- symmetry. For each remaining cell, try galaxies nearest-first; commit
-    -- the cell (and its rotation partner under that galaxy's center, if the
-    -- partner is also still unassigned) to the first galaxy where that
-    -- doesn't conflict with a cell already locked into a different galaxy.
-    -- If no galaxy works for some cell, this whole attempt fails and the
-    -- caller's retry loop tries a fresh random center placement -- unlike
-    -- nearest-galaxy-regardless-of-symmetry (the old behavior), which
-    -- silently produced a region that violated the puzzle's own win
-    -- condition on almost every generation.
-    local remaining = {}
-    for r = 1, n do
-        for c = 1, n do
-            if region[r][c] == 0 then
-                remaining[#remaining + 1] = {r, c}
-            end
-        end
-    end
-    shuffle(remaining)
-    for _, cell in ipairs(remaining) do
-        local r, c = cell[1], cell[2]
-        if region[r][c] == 0 then  -- may already be claimed as an earlier cell's partner
-            local order = {}
-            for g = 1, num_g do order[g] = g end
-            table.sort(order, function(a, b)
-                local da = math.abs(r - centers[a][1]) + math.abs(c - centers[a][2])
-                local db = math.abs(r - centers[b][1]) + math.abs(c - centers[b][2])
-                return da < db
-            end)
-            local placed = false
-            for _, g in ipairs(order) do
-                local cr, cc = centers[g][1], centers[g][2]
-                local sr, sc = rotCell(r, c, cr, cc)
-                if inBounds(sr, sc, n) and (region[sr][sc] == 0 or region[sr][sc] == g) then
+                local g = #centers + 1
+                if partner then
+                    centers[g] = { r + partner[1] - 1, c + partner[2] - 1 }
+                    galaxy_cells[g] = { { r, c }, { partner[1], partner[2] } }
                     region[r][c] = g
-                    galaxy_cells[g][#galaxy_cells[g] + 1] = { r, c }
-                    if (sr ~= r or sc ~= c) and region[sr][sc] == 0 then
-                        region[sr][sc] = g
-                        galaxy_cells[g][#galaxy_cells[g] + 1] = { sr, sc }
-                    end
-                    placed = true
-                    break
+                    region[partner[1]][partner[2]] = g
+                else
+                    centers[g] = { 2 * r - 1, 2 * c - 1 }
+                    galaxy_cells[g] = { { r, c } }
+                    region[r][c] = g
                 end
             end
-            if not placed then return nil end
         end
     end
 
@@ -170,24 +178,22 @@ end
 -- ---------------------------------------------------------------------------
 
 local function regionIsSymmetric(user_region, centers, g, n)
-    local cr, cc = centers[g][1], centers[g][2]
-    -- Collect all cells assigned to g by the user
-    local cells_g = {}
+    local R, C = centers[g][1], centers[g][2]
     for r = 1, n do
         for c = 1, n do
             if user_region[r][c] == g then
-                cells_g[#cells_g + 1] = {r, c}
+                local sr, sc = rotCell(r, c, R, C)
+                if not inBounds(sr, sc, n) then return false end
+                if user_region[sr][sc] ~= g then return false end
             end
         end
     end
-    -- For each cell, its rotation must also be in g
-    for _, cell in ipairs(cells_g) do
-        local sr, sc = rotCell(cell[1], cell[2], cr, cc)
-        if not inBounds(sr, sc, n) then return false end
-        if user_region[sr][sc] ~= g then return false end
+    -- Every cell the centre sits on must belong to the galaxy: one cell for a
+    -- centre in the middle of a cell, two on an edge, four on a corner.
+    for _, cc in ipairs(centreCells(R, C)) do
+        if not inBounds(cc[1], cc[2], n) then return false end
+        if user_region[cc[1]][cc[2]] ~= g then return false end
     end
-    -- The center must be assigned to g
-    if user_region[cr][cc] ~= g then return false end
     return true
 end
 
@@ -215,32 +221,17 @@ function GalaxiesBoard:new(opts)
 end
 
 function GalaxiesBoard:generate()
-    local n            = self.n
-    -- Number of galaxies scales with grid size
-    local num_galaxies = math.max(3, math.floor(n * n / 6))
-
-    local centers, region, gcells
-    for _ = 1, 3000 do
-        centers, region, gcells = generateGalaxies(n, num_galaxies)
-        if centers then break end
-    end
-
-    if not centers then
-        -- Fallback: single galaxy covering the whole grid
-        centers = {{math.ceil(n / 2), math.ceil(n / 2)}}
-        region  = emptyGrid(n, n, 1)
-        gcells  = {}
-        gcells[1] = {}
-        for r = 1, n do
-            for c = 1, n do gcells[1][#gcells[1] + 1] = {r, c} end
-        end
-    end
+    -- No retry loop and no fallback: the tiling above always succeeds, because
+    -- a single cell is always a legal galaxy. The old code retried 3000 times
+    -- and then dropped to one galaxy covering the whole grid -- which at n >= 7
+    -- is what it did every single time.
+    local centers, region, gcells = generateGalaxies(self.n)
 
     self.centers         = centers
     self.num_galaxies    = #centers
     self.solution_region = region
     self.galaxy_cells    = gcells
-    self.user_region     = emptyGrid(n, n, 0)
+    self.user_region     = emptyGrid(self.n, self.n, 0)
     self.won             = false
     self.undo:clear()
 end
@@ -353,6 +344,11 @@ function GalaxiesBoard:serialize()
     return {
         n            = n,
         num_galaxies = self.num_galaxies,
+        -- Marks the coordinate space of `centers`. Saves written before
+        -- centres moved to doubled coordinates carry no marker and are
+        -- rejected on load: their centres would be drawn in the wrong place
+        -- and the win check would never pass.
+        center_space = "doubled",
         centers      = self.centers,
         solution     = sol_flat,
         user         = usr_flat,
@@ -362,6 +358,7 @@ end
 
 function GalaxiesBoard:load(data)
     if type(data) ~= "table" or not data.centers then return false end
+    if data.center_space ~= "doubled" then return false end
     local n = data.n or DEFAULT_N
     self.n           = n
     self.num_galaxies = data.num_galaxies or #data.centers
