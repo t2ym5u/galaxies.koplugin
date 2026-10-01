@@ -2,5 +2,5 @@ local _ = require("gettext")
 return {
     fullname    = _("Galaxies"),
     description = _("Divide the grid into rotationally symmetric galaxies"),
-    version     = "1.2.0",
+    version     = "1.2.1",
 }
