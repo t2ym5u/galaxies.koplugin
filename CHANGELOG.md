@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.2] - 2026-10-01
+
+### Fixed
+- The downloadable zip is published again. `dist/galaxies.zip` had never been
+  committed since galaxies stopped being a set-aside plugin: `dist/` is
+  gitignored, so a newly built zip is invisible to `git add dist/` and the
+  monorepo release workflow kept skipping the plugin for want of one. Plugin
+  Manager was unaffected -- it fetches individual files, not the zip.
+
 ## [1.2.1] - 2026-10-01
 
 ### Fixed
