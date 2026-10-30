@@ -15,7 +15,6 @@ Divide the grid into regions, one per galaxy symbol. Each region must be **rotat
 - **Multiple grid sizes**
 - **Three difficulty levels** — Easy, Medium, Hard
 - **Symmetry preview** — highlights the symmetric counterpart of a selected cell
-- **Check** — validates symmetry and coverage
 - **Auto-save** — puzzle state saved and restored on next launch
 
 ## Installation
@@ -31,8 +30,7 @@ Divide the grid into regions, one per galaxy symbol. Each region must be **rotat
 |--------|-----|
 | Assign cell to galaxy | Tap cell |
 | Cycle through galaxies | Tap cell again |
-| Check progress | Tap **Check** |
-| New puzzle | Tap **New** |
+| New puzzle | Menu → **New game** |
 | Show rules | Tap **Rules** |
 
 ## License
