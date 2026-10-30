@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-10-30
+
+### Added
+- "New game" once the puzzle is solved (or the solution is shown): the
+  action bar shows it in place of Clear and Undo, so the next puzzle no
+  longer needs the menu.
+- The rules now explain how to play: tap a cell to assign it to the next
+  galaxy and keep tapping to cycle through them.
+
+### Changed
+- Redesigned play screen, in line with the other games: a full-width action
+  bar, a larger board that fills the available room, and one frame around
+  it. The status line reads "size · Unassigned: n" and wraps in landscape
+  instead of being cut off.
+- Galaxy centres are drawn as round white discs with a black ring and the
+  galaxy number centred inside, instead of black squares with a barely
+  readable grey number. They now read on shaded and unshaded cells alike,
+  and the number -- which tells you which galaxy a tap assigns next -- is
+  sized to fit the disc.
+- Title-bar menu in the same order as every other game, with "Reveal"
+  renamed "Show solution".
+- New README screenshot.
+
+### Fixed
+- The board's closing grid line was drawn just past its edge, so the right
+  and bottom borders spilled outside the board.
+
 ## [1.2.3] - 2026-10-07
 
 ### Fixed

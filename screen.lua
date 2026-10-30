@@ -7,7 +7,6 @@ local function lrequire(name)
     return package.loaded[key]
 end
 
-local ButtonTable     = require("ui/widget/buttontable")
 local Device          = require("device")
 local FrameContainer  = require("ui/widget/container/framecontainer")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
@@ -37,6 +36,8 @@ Rules:
 • Galaxy symbols may be centred on a cell, on an edge midpoint, or on a vertex (corner of four cells).
 
 The puzzle is solved when all cells are assigned to a galaxy and each region has perfect 180° symmetry around its symbol.
+
+Tap a cell to assign it to the next galaxy (1, 2, 3, …); keep tapping to cycle through them and back to unassigned. The number inside each symbol is its galaxy.
 ]])
 
 local GAME_RULES_FR = [[
@@ -50,6 +51,8 @@ Règles :
 • Les symboles de galaxie peuvent être centrés sur une case, sur le milieu d'un bord, ou sur un sommet (coin de quatre cases).
 
 Le puzzle est résolu quand toutes les cases sont attribuées à une galaxie et que chaque région présente une symétrie parfaite à 180° autour de son symbole.
+
+Appuyez sur une case pour l'attribuer à la galaxie suivante (1, 2, 3, …) ; continuez d'appuyer pour les faire défiler jusqu'à revenir à non attribuée. Le numéro dans chaque symbole est celui de sa galaxie.
 ]]
 
 local GalaxiesScreen = ScreenBase:extend{}
@@ -69,70 +72,56 @@ function GalaxiesScreen:serializeState()
 end
 
 function GalaxiesScreen:buildLayout()
-    local sw           = DeviceScreen:getWidth()
     local is_landscape = self:isLandscape()
-
-    self.board_widget = GalaxiesBoardWidget:new{
-        board        = self.board,
-        onCellTap_cb = function(r, c) self:onCellTap(r, c) end,
-    }
-
-    local board_frame = FrameContainer:new{
-        padding = Size.padding.large,
-        margin  = Size.margin.default,
-        self.board_widget,
-    }
-
-    local board_frame_size  = self.board_widget.size + (Size.padding.large + Size.margin.default) * 2
-    local right_panel_width = sw - board_frame_size - Size.span.horizontal_default
-    local button_width = is_landscape
-        and math.max(right_panel_width - Size.span.horizontal_default, 100)
-        or  math.floor(sw * 0.9)
-
-    self.status_text:setMaxWidth(is_landscape and button_width or board_frame_size)
 
     local title_bar = self:buildTitleBar(_("Galaxies"), function()
         return {
             { text = _("New game"),            callback = function() self:onNewGame() end },
             { text = self:getSizeButtonText(), callback = function() self:openSizeMenu() end },
-            { text = _("Reveal"),              callback = function() self:onReveal() end },
+            { text = _("Show solution"),       callback = function() self:onReveal() end },
             self:makeRulesButtonConfig(GAME_RULES_EN, GAME_RULES_FR),
         }
     end)
 
-    local bottom_buttons = ButtonTable:new{
-        shrink_unneeded_width = true,
-        width   = button_width,
-        buttons = {{
-            { text = _("Clear"),
-              callback = function() self:onClear() end },
-            { text = _("Undo"),
-              callback = function() self:onUndo() end },
-        }},
+    self.status_text:setMaxWidth(self:getControlsWidth())
+    local controls = VerticalGroup:new{
+        align = "center",
+        self.status_text,
+        VerticalSpan:new{ width = Size.span.vertical_large },
+        self:buildActionBar({
+            { text = _("Clear"), callback = function() self:onClear() end },
+            { text = _("Undo"),  callback = function() self:onUndo() end },
+        }),
+    }
+
+    -- The widget draws its own thick outer grid line, so the frame stays
+    -- borderless: one visible edge around the board, not two.
+    local frame_pad   = Size.padding.large
+    local frame_extra = 2 * frame_pad
+    local budget_w, budget_h = self:getBoardBudget(title_bar, controls)
+    self.board_widget = GalaxiesBoardWidget:new{
+        board        = self.board,
+        max_size     = math.min(budget_w, budget_h) - frame_extra,
+        onCellTap_cb = function(r, c) self:onCellTap(r, c) end,
+    }
+    local board_frame = FrameContainer:new{
+        padding    = frame_pad,
+        margin     = 0,
+        bordersize = 0,
+        self.board_widget,
     }
 
     if is_landscape then
-        local right_panel = VerticalGroup:new{
-            align = "center",
-            self.status_text,
-            VerticalSpan:new{ width = Size.span.vertical_large },
-            bottom_buttons,
-        }
         local content = HorizontalGroup:new{
-            align  = "center",
+            align = "center",
             board_frame,
-            HorizontalSpan:new{ width = Size.span.horizontal_default },
-            right_panel,
+            HorizontalSpan:new{ width = self:getGutter() },
+            controls,
         }
         self:buildLandscapeLayout(title_bar, content)
     else
-        local content = VerticalGroup:new{
-            align = "center",
-            board_frame,
-            VerticalSpan:new{ width = Size.span.vertical_large },
-            self.status_text,
-        }
-        self:buildPortraitLayout(title_bar, content, bottom_buttons)
+        self:buildPortraitLayout(title_bar, board_frame,
+            VerticalGroup:new{ align = "center", controls, VerticalSpan:new{ width = self:getGutter() } })
     end
     self:updateStatus()
 end
@@ -185,7 +174,7 @@ function GalaxiesScreen:openSizeMenu()
         sizes[#sizes + 1] = { id = sz, text = sz .. "\xC3\x97" .. sz }
     end
     MenuHelper.openSizeMenu{
-        title     = _("Select grid size"),
+        title     = _("Select size"),
         sizes     = sizes,
         current   = self.plugin:getSetting("grid_n", GalaxiesBoard.DEFAULT_N),
         parent    = self,
@@ -207,11 +196,18 @@ function GalaxiesScreen:updateStatus(msg)
     else
         local unassigned = self.board:countUnassigned()
         local n          = self.board.n
-        local num_g      = self.board.num_galaxies
-        status = T(_("%1\xC3\x97%2 \xC2\xB7 %3 galaxies \xC2\xB7 Unassigned: %4"),
-                   n, n, num_g, unassigned)
+        status = self:joinStatus(
+            T("%1×%1", n),
+            T(_("Unassigned: %1"), unassigned))
     end
     ScreenBase.updateStatus(self, status)
+    -- Every move, hint, undo and reveal ends here, so the bar follows the board.
+    self:refreshActionBar()
+end
+
+-- Show solution marks the board won, so it ends the round too.
+function GalaxiesScreen:isRoundOver()
+    return self.board.won
 end
 
 function GalaxiesScreen:getSizeButtonText()

@@ -1,4 +1,5 @@
 local Blitbuffer = require("ffi/blitbuffer")
+local Font       = require("ui/font")
 local Geom       = require("ui/geometry")
 local RenderText = require("ui/rendertext")
 
@@ -23,8 +24,9 @@ local NUM_GALAXY_COLORS = #GALAXY_COLORS
 local C_BG      = Blitbuffer.COLOR_WHITE
 local C_LINE    = Blitbuffer.COLOR_BLACK
 local C_GRID    = Blitbuffer.COLOR_GRAY_9
-local C_CENTER  = Blitbuffer.COLOR_BLACK   -- filled dot for galaxy center
-local C_LABEL   = Blitbuffer.COLOR_GRAY_4  -- galaxy number inside dot
+local C_CENTER  = Blitbuffer.COLOR_BLACK   -- ring of the galaxy center dot
+local C_DOT_BG  = Blitbuffer.COLOR_WHITE   -- dot fill, readable on any shade
+local C_LABEL   = Blitbuffer.COLOR_BLACK   -- galaxy number inside dot
 
 -- ---------------------------------------------------------------------------
 -- GalaxiesBoardWidget
@@ -39,6 +41,26 @@ function GalaxiesBoardWidget:init()
     self.cols = n
     self.rows = n
     GridWidgetBase.init(self)
+
+    -- Centre dots carry the galaxy number: tapping a cell cycles it through
+    -- galaxies 1..num_galaxies, and shades repeat every NUM_GALAXY_COLORS,
+    -- so the number is what tells the player which galaxy is next. Size the
+    -- font so the widest label fits inside the dot.
+    local cell  = self.dimen.w / n
+    self.dot_r  = math.max(3, math.floor(cell * 0.22))
+    local sample = tostring(self.board and self.board.num_galaxies or 9):gsub("%d", "8")
+    local lo, hi, best = 4, math.max(4, self.dot_r * 2), nil
+    while lo <= hi do
+        local mid  = math.floor((lo + hi) / 2)
+        local face = Font:getFace("cfont", mid)
+        local m    = RenderText:sizeUtf8Text(0, self.dot_r * 4, face, sample, true, false)
+        if m.x <= self.dot_r * 1.25 and (m.y_top + m.y_bottom) <= self.dot_r then
+            best, lo = mid, mid + 1
+        else
+            hi = mid - 1
+        end
+    end
+    self.label_face = best and Font:getFace("cfont", best)
 end
 
 function GalaxiesBoardWidget:onCellTap(row, col)
@@ -81,12 +103,18 @@ function GalaxiesBoardWidget:paintTo(bb, x, y)
     local thick = math.max(2, math.floor(cell * 0.08))
     for i = 0, n do
         local lw = (i == 0 or i == n) and thick or thin
-        drawLine(bb, x + math.floor(i * cell), y, lw, self.dimen.h, C_LINE)
-        drawLine(bb, x, y + math.floor(i * cell), self.dimen.w, lw, C_LINE)
+        -- The closing line sits inside the board so it doesn't spill past
+        -- the widget's bounds.
+        local p  = math.floor(i * cell) - ((i == n) and lw or 0)
+        drawLine(bb, x + p, y, lw, self.dimen.h, C_LINE)
+        drawLine(bb, x, y + p, self.dimen.w, lw, C_LINE)
     end
 
-    -- Galaxy center dots
-    local dot_r = math.max(3, math.floor(cell * 0.18))
+    -- Galaxy center dots: white disc with a black ring, so they read on
+    -- both unshaded and shaded cells, with the galaxy number centred inside.
+    local dot_r = self.dot_r
+    local ring  = math.max(1, math.floor(dot_r / 6))
+    local face  = self.label_face
     for g = 1, board.num_galaxies do
         local center = board.centers[g]
         if center then
@@ -96,15 +124,13 @@ function GalaxiesBoardWidget:paintTo(bb, x, y)
             local R, C = center[1], center[2]
             local cx = x + math.floor(C * cell / 2)
             local cy = y + math.floor(R * cell / 2)
-            -- Draw filled circle (approximated by a square for e-ink)
-            bb:paintRect(cx - dot_r, cy - dot_r, dot_r * 2, dot_r * 2, C_CENTER)
-            -- Draw galaxy number inside the dot if space allows
-            if dot_r >= 4 then
-                local face = self.note_face
-                local txt  = tostring(g)
-                local m    = RenderText:sizeUtf8Text(0, dot_r * 2, face, txt, true, false)
-                local tx   = cx - math.floor(m.x / 2)
-                local ty   = cy - math.floor((m.y_bottom - m.y_top) / 2) - m.y_top
+            bb:paintCircle(cx, cy, dot_r, C_DOT_BG)
+            bb:paintCircle(cx, cy, dot_r, C_CENTER, ring)
+            if face then
+                local txt = tostring(g)
+                local m   = RenderText:sizeUtf8Text(0, dot_r * 4, face, txt, true, false)
+                local tx  = cx - math.floor(m.x / 2)
+                local ty  = cy + math.floor((m.y_top - m.y_bottom) / 2)
                 RenderText:renderUtf8Text(bb, tx, ty, face, txt, true, false, C_LABEL)
             end
         end
