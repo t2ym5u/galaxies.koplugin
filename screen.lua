@@ -77,6 +77,7 @@ function GalaxiesScreen:buildLayout()
     local title_bar = self:buildTitleBar(_("Galaxies"), function()
         return {
             { text = _("New game"),            callback = function() self:onNewGame() end },
+            self:makeDailyButtonConfig(),
             { text = self:getSizeButtonText(), callback = function() self:openSizeMenu() end },
             { text = _("Show solution"),       callback = function() self:onReveal() end },
             self:makeRulesButtonConfig(GAME_RULES_EN, GAME_RULES_FR),
