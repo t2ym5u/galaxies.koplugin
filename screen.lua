@@ -60,7 +60,7 @@ local GalaxiesScreen = ScreenBase:extend{}
 function GalaxiesScreen:init()
     local state = self.plugin:loadState()
     local n     = self.plugin:getSetting("grid_n", GalaxiesBoard.DEFAULT_N)
-    self.board  = GalaxiesBoard:new{ n = n }
+    self.board  = GalaxiesBoard:new{ n = n, empty = true }
     if not self.board:load(state) then
         self.board:generate()
     end
@@ -162,7 +162,7 @@ end
 
 function GalaxiesScreen:onNewGame()
     local n    = self.plugin:getSetting("grid_n", GalaxiesBoard.DEFAULT_N)
-    self.board = GalaxiesBoard:new{ n = n }
+    self.board = GalaxiesBoard:new{ n = n, empty = true }
     self.board:generate()
     self.plugin:saveState(self.board:serialize())
     self:buildLayout()
