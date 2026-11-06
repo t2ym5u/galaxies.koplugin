@@ -32,10 +32,11 @@ Divide the grid into regions, one region per galaxy symbol.
 
 Rules:
 • Each region must be rotationally symmetric by 180° around its galaxy symbol.
+• Each region is in one piece: its cells are joined side by side, never only by a corner.
 • Every cell belongs to exactly one region.
 • Galaxy symbols may be centred on a cell, on an edge midpoint, or on a vertex (corner of four cells).
 
-The puzzle is solved when all cells are assigned to a galaxy and each region has perfect 180° symmetry around its symbol.
+The puzzle is solved when all cells are assigned to a galaxy and each region is in one piece with perfect 180° symmetry around its symbol. Every puzzle has exactly one solution, and it can be found by reasoning alone, without guessing.
 
 Tap a cell to assign it to the next galaxy (1, 2, 3, …); keep tapping to cycle through them and back to unassigned. The number inside each symbol is its galaxy.
 ]])
@@ -47,10 +48,11 @@ Divisez la grille en régions, une région par symbole de galaxie.
 
 Règles :
 • Chaque région doit être symétrique par rotation à 180° autour de son symbole de galaxie.
+• Chaque région est d'un seul tenant : ses cases se touchent par un côté, jamais seulement par un coin.
 • Chaque case appartient à exactement une région.
 • Les symboles de galaxie peuvent être centrés sur une case, sur le milieu d'un bord, ou sur un sommet (coin de quatre cases).
 
-Le puzzle est résolu quand toutes les cases sont attribuées à une galaxie et que chaque région présente une symétrie parfaite à 180° autour de son symbole.
+Le puzzle est résolu quand toutes les cases sont attribuées à une galaxie et que chaque région, d'un seul tenant, présente une symétrie parfaite à 180° autour de son symbole. Chaque puzzle a une seule solution, que l'on trouve par le raisonnement, sans deviner.
 
 Appuyez sur une case pour l'attribuer à la galaxie suivante (1, 2, 3, …) ; continuez d'appuyer pour les faire défiler jusqu'à revenir à non attribuée. Le numéro dans chaque symbole est celui de sa galaxie.
 ]]
