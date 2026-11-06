@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.6.0] - 2026-11-06
+
+### Changed
+- Every puzzle now has exactly one solution and never needs guessing. Each
+  generated grid is checked by a solver that reasons like a player (a
+  cell's mirror image about a centre, which galaxies can still reach it)
+  and is kept only if that solver finishes it. Before, up to 1 puzzle in 5
+  (8×8) had several solutions even with galaxies in one piece, 5 in 30
+  (6×6) to 25 in 30 (8×8) once a galaxy split in two halves was allowed,
+  and up to 3 in 30 could not be finished without guessing.
+- The rules now say that each galaxy is in one piece (its cells touch side
+  by side), as in the classic puzzle.
+- Today's Daily Challenge puzzle changes once with this update.
+
+### Fixed
+- The win check now refuses a galaxy split into separate pieces, even when
+  the pieces are symmetric about its centre.
+
 ## [1.5.2] - 2026-11-04
 
 ### Fixed

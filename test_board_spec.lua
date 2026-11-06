@@ -252,4 +252,124 @@ describe("GalaxiesBoard", function()
             assert.are.same(saved, b:serialize())
         end)
     end)
+
+    describe("generator (1.6.0)", function()
+        it("every puzzle: one solution (connected galaxies), no trial and error", function()
+            for _, n in ipairs(Board.SIZES) do
+                for seed = 1, 30 do
+                    math.randomseed(seed)
+                    local b = Board:new{ n = n }
+                    local solved, _, owner = Board._logicSolve(n, b.centers, 2)
+                    assert.is_true(solved, ("n=%d seed=%d needs trial"):format(n, seed))
+                    for r = 1, n do
+                        for c = 1, n do
+                            assert.are.equal(b.solution_region[r][c], owner[(r - 1) * n + c])
+                        end
+                    end
+                    local count, exhausted = Board._countSolutions(n, b.centers, 2, 2e6)
+                    assert.is_false(exhausted)
+                    assert.are.equal(1, count)
+                    b:reveal()
+                    b.won = false
+                    b:_checkWin()
+                    assert.is_true(b.won)
+                end
+            end
+        end)
+
+        it("logicSolve never decides a cell against the only solution", function()
+            local bad = 0
+            for seed = 1, 300 do
+                math.randomseed(seed)
+                local n = 5 + seed % 4
+                local centers, region = Board._generateGalaxies(n)
+                local count = Board._countSolutions(n, centers, 2, 2e6)
+                local solved, _, owner = Board._logicSolve(n, centers, 2)
+                if solved and count ~= 1 then bad = bad + 1 end
+                if count == 1 then
+                    for r = 1, n do
+                        for c = 1, n do
+                            local o = owner[(r - 1) * n + c]
+                            if o ~= 0 and o ~= region[r][c] then bad = bad + 1 end
+                        end
+                    end
+                end
+            end
+            assert.are.equal(0, bad)
+        end)
+
+        it("adds centres when tilings keep failing, and still ends solvable", function()
+            local saved = Board.ATTEMPTS
+            Board.ATTEMPTS = 1
+            local ok, err = pcall(function()
+                for seed = 1, 60 do
+                    math.randomseed(seed)
+                    local b = Board:new{ n = 8 }
+                    assert.is_true((Board._logicSolve(8, b.centers, 2)))
+                    local count = Board._countSolutions(8, b.centers, 2, 2e6)
+                    assert.are.equal(1, count)
+                end
+            end)
+            Board.ATTEMPTS = saved
+            assert(ok, err)
+        end)
+
+        it("the same seed gives the same puzzle", function()
+            for _, n in ipairs(Board.SIZES) do
+                math.randomseed(77)
+                local a = Board:new{ n = n }:serialize()
+                math.randomseed(77)
+                local b = Board:new{ n = n }:serialize()
+                assert.are.same(a, b)
+            end
+        end)
+
+        it("stays quick (8x8)", function()
+            local t = os.clock()
+            for seed = 1, 30 do
+                math.randomseed(seed)
+                Board:new{ n = 8 }
+            end
+            assert.is_true(os.clock() - t < 3, "30 puzzles took " .. (os.clock() - t) .. " s")
+        end)
+    end)
+
+    describe("win check", function()
+        it("refuses a symmetric galaxy in two pieces", function()
+            -- 3x3: galaxy 1 centred on the middle cell, galaxies 2..7 are
+            -- single cells on the six cells left once the middle and two
+            -- opposite corners are taken out. Giving
+            -- galaxy 1 the corners (1,1) and (3,3) is symmetric about the
+            -- middle, but they touch it only by a corner.
+            local b = Board:new{ n = 3, empty = true }
+            local function d(r, c) return { 2 * r - 1, 2 * c - 1 } end
+            b.centers = { d(2, 2), d(1, 2), d(1, 3), d(2, 1), d(2, 3), d(3, 1), d(3, 2) }
+            b.num_galaxies = 7
+            b.solution_region = { { 1, 2, 3 }, { 4, 1, 5 }, { 6, 7, 1 } }
+            b.user_region     = { { 1, 2, 3 }, { 4, 1, 5 }, { 6, 7, 1 } }
+            b:_checkWin()
+            assert.is_false(b.won)
+            -- galaxy 1 in one piece instead: the middle column
+            b.centers = { d(2, 2), d(1, 1), d(1, 3), d(2, 1), d(2, 3), d(3, 1), d(3, 3) }
+            b.user_region = { { 2, 1, 3 }, { 4, 1, 5 }, { 6, 1, 7 } }
+            b:_checkWin()
+            assert.is_true(b.won)
+        end)
+    end)
+
+    describe("old saves", function()
+        it("a 1.5.x save loads and its own answer still wins", function()
+            math.randomseed(5)
+            local data = Board:new{ n = 6 }:serialize()
+            -- the 1.5.x format is the same; only add a player's half-done grid
+            data.user[1] = data.solution[1]
+            local b = Board:new{ n = 6, empty = true }
+            assert.is_true(b:load(data))
+            assert.are.equal(data.solution[1], b.user_region[1][1])
+            b:reveal()
+            b.won = false
+            b:_checkWin()
+            assert.is_true(b.won)
+        end)
+    end)
 end)

@@ -174,6 +174,245 @@ local function generateGalaxies(n)
 end
 
 -- ---------------------------------------------------------------------------
+-- Human-style solver, no trial and error. Each cell keeps the set of
+-- galaxies it can still belong to.
+--   tier 1  a cell can only join a galaxy whose mirror cell (180° about the
+--           galaxy's centre) is on the grid and can join it too; a cell
+--           whose galaxy is known takes its mirror cell along; a cell
+--           cannot join a galaxy it has no path to (through cells that can
+--           still join it), since galaxies are in one piece.
+--   tier 2  a cell every path between a galaxy's centre and one of its
+--           known cells has to go through belongs to that galaxy.
+-- Each tier-2 step goes back to tier 1, so tier2 counts the steps a
+-- player could not take with tier 1 alone. Every rule is sound, so a full
+-- solve proves the solution is the only one.
+-- Returns solved, tier2, owner (cell index -> galaxy, 0 if undecided).
+-- ---------------------------------------------------------------------------
+
+local function logicSolve(n, centers, max_tier)
+    max_tier = max_tier or 2
+    local G, N = #centers, n * n
+    local cand, cnt = {}, {}            -- cand[i][g] = true; cnt[i] = #cand[i]
+    local mirror = {}                   -- mirror[g][i] = cell index or nil
+    local nbrs = {}
+    for r = 1, n do
+        for c = 1, n do
+            local i = (r - 1) * n + c
+            local nb = {}
+            for _, d in ipairs(DIR4) do
+                if inBounds(r + d[1], c + d[2], n) then nb[#nb + 1] = i + d[1] * n + d[2] end
+            end
+            nbrs[i] = nb
+            cand[i], cnt[i] = {}, 0
+        end
+    end
+    for g = 1, G do
+        local R, C = centers[g][1], centers[g][2]
+        local m = {}
+        for r = 1, n do
+            for c = 1, n do
+                local pr, pc = rotCell(r, c, R, C)
+                if inBounds(pr, pc, n) then
+                    local i = (r - 1) * n + c
+                    m[i] = (pr - 1) * n + pc
+                    cand[i][g] = true
+                    cnt[i] = cnt[i] + 1
+                end
+            end
+        end
+        mirror[g] = m
+    end
+    local home = {}                     -- home[g] = cells under the centre
+    for g = 1, G do
+        home[g] = {}
+        for _, cc in ipairs(centreCells(centers[g][1], centers[g][2])) do
+            local i = (cc[1] - 1) * n + cc[2]
+            home[g][#home[g] + 1] = i
+            cand[i], cnt[i] = { [g] = true }, 1
+        end
+    end
+
+    local function remove(i, g)
+        if cand[i][g] then
+            cand[i][g] = nil
+            cnt[i] = cnt[i] - 1
+            return true
+        end
+        return false
+    end
+    local function fix(i, g)
+        local progress = false
+        for h in pairs(cand[i]) do
+            if h ~= g then progress = remove(i, h) or progress end
+        end
+        return progress
+    end
+    local function ownerOf(i)
+        if cnt[i] == 1 then return next(cand[i]) end
+        return nil
+    end
+
+    -- cells reachable from g's centre through cells that can join g,
+    -- leaving `skip` out
+    local function reach(g, skip)
+        local seen, stack = {}, {}
+        for _, i in ipairs(home[g]) do
+            if i ~= skip and cand[i][g] then seen[i] = true; stack[#stack + 1] = i end
+        end
+        while #stack > 0 do
+            local i = stack[#stack]; stack[#stack] = nil
+            for _, j in ipairs(nbrs[i]) do
+                if j ~= skip and not seen[j] and cand[j][g] then
+                    seen[j] = true
+                    stack[#stack + 1] = j
+                end
+            end
+        end
+        return seen
+    end
+
+    local function tier1()
+        local progress = false
+        for i = 1, N do
+            for g in pairs(cand[i]) do
+                local p = mirror[g][i]
+                if not (p and cand[p][g]) then progress = remove(i, g) or progress end
+            end
+        end
+        for i = 1, N do
+            local g = ownerOf(i)
+            if g then progress = fix(mirror[g][i], g) or progress end
+        end
+        for g = 1, G do
+            local seen = reach(g)
+            for i = 1, N do
+                if cand[i][g] and not seen[i] then progress = remove(i, g) or progress end
+            end
+        end
+        return progress
+    end
+
+    local function tier2()
+        for g = 1, G do
+            local known = {}
+            for i = 1, N do
+                if ownerOf(i) == g then known[#known + 1] = i end
+            end
+            for x = 1, N do
+                if cnt[x] > 1 and cand[x][g] then
+                    local seen = reach(g, x)
+                    for _, k in ipairs(known) do
+                        if not seen[k] then
+                            fix(x, g)
+                            return true
+                        end
+                    end
+                end
+            end
+        end
+        return false
+    end
+
+    local t2 = 0
+    while true do
+        if not tier1() then
+            if max_tier >= 2 and tier2() then
+                t2 = t2 + 1
+            else
+                break
+            end
+        end
+    end
+    local owner, solved = {}, true
+    for i = 1, N do
+        owner[i] = ownerOf(i) or 0
+        if owner[i] == 0 then solved = false end
+    end
+    return solved, t2, owner
+end
+
+-- ---------------------------------------------------------------------------
+-- Exact solution counter (the specs cross-check logicSolve with it): how
+-- many ways to split the grid into connected galaxies, each symmetric
+-- about its centre. Backtracking on the cell with the fewest choices,
+-- placing a cell and its mirror cell together.
+-- ---------------------------------------------------------------------------
+
+local function countSolutions(n, centers, limit, node_budget)
+    local G = #centers
+    local a = emptyGrid(n, n, 0)
+    for g = 1, G do
+        for _, cc in ipairs(centreCells(centers[g][1], centers[g][2])) do
+            if a[cc[1]][cc[2]] ~= 0 then return 0, false end
+            a[cc[1]][cc[2]] = g
+        end
+    end
+    local function choices(r, c)
+        local t = {}
+        for g = 1, G do
+            local pr, pc = rotCell(r, c, centers[g][1], centers[g][2])
+            if inBounds(pr, pc, n) and (a[pr][pc] == 0 or a[pr][pc] == g) then t[#t + 1] = g end
+        end
+        return t
+    end
+    local function allConnected()
+        for g = 1, G do
+            local first, total = nil, 0
+            for r = 1, n do
+                for c = 1, n do
+                    if a[r][c] == g then total = total + 1; first = first or { r, c } end
+                end
+            end
+            local seen, stack, k = { [first[1] * 100 + first[2]] = true }, { first }, 0
+            while #stack > 0 do
+                local x = table.remove(stack)
+                k = k + 1
+                for _, d in ipairs(DIR4) do
+                    local p, q = x[1] + d[1], x[2] + d[2]
+                    if inBounds(p, q, n) and a[p][q] == g and not seen[p * 100 + q] then
+                        seen[p * 100 + q] = true
+                        stack[#stack + 1] = { p, q }
+                    end
+                end
+            end
+            if k ~= total then return false end
+        end
+        return true
+    end
+    local sols, nodes, exhausted = 0, 0, false
+    local function rec()
+        if sols >= limit or exhausted then return end
+        nodes = nodes + 1
+        if nodes > node_budget then exhausted = true; return end
+        local br, bc, bt
+        for r = 1, n do
+            for c = 1, n do
+                if a[r][c] == 0 then
+                    local t = choices(r, c)
+                    if #t == 0 then return end
+                    if not bt or #t < #bt then br, bc, bt = r, c, t end
+                end
+            end
+        end
+        if not br then
+            if allConnected() then sols = sols + 1 end
+            return
+        end
+        for _, g in ipairs(bt) do
+            local pr, pc = rotCell(br, bc, centers[g][1], centers[g][2])
+            local set_p = a[pr][pc] == 0
+            a[br][bc], a[pr][pc] = g, g
+            rec()
+            a[br][bc] = 0
+            if set_p then a[pr][pc] = 0 end
+            if sols >= limit or exhausted then return end
+        end
+    end
+    rec()
+    return sols, exhausted
+end
+
+-- ---------------------------------------------------------------------------
 -- Win check: each region must be rotationally symmetric around its center
 -- ---------------------------------------------------------------------------
 
@@ -195,6 +434,33 @@ local function regionIsSymmetric(user_region, centers, g, n)
         if user_region[cc[1]][cc[2]] ~= g then return false end
     end
     return true
+end
+
+-- Every cell of galaxy g can reach every other through cells of g.
+local function regionIsConnected(user_region, g, n)
+    local first, total = nil, 0
+    for r = 1, n do
+        for c = 1, n do
+            if user_region[r][c] == g then
+                total = total + 1
+                first = first or { r, c }
+            end
+        end
+    end
+    if total == 0 then return true end
+    local seen, stack, k = { [(first[1] - 1) * n + first[2]] = true }, { first }, 0
+    while #stack > 0 do
+        local x = table.remove(stack)
+        k = k + 1
+        for _, d in ipairs(DIR4) do
+            local p, q = x[1] + d[1], x[2] + d[2]
+            if inBounds(p, q, n) and user_region[p][q] == g and not seen[(p - 1) * n + q] then
+                seen[(p - 1) * n + q] = true
+                stack[#stack + 1] = { p, q }
+            end
+        end
+    end
+    return k == total
 end
 
 -- ---------------------------------------------------------------------------
@@ -222,12 +488,60 @@ function GalaxiesBoard:new(opts)
     return obj
 end
 
-function GalaxiesBoard:generate()
-    -- No retry loop and no fallback: the tiling above always succeeds, because
-    -- a single cell is always a legal galaxy. The old code retried 3000 times
-    -- and then dropped to one galaxy covering the whole grid -- which at n >= 7
-    -- is what it did every single time.
-    local centers, region, gcells = generateGalaxies(self.n)
+GalaxiesBoard.ATTEMPTS = 50
+
+-- A tiling always exists (see generateGalaxies), but its centres alone do
+-- not always pin it down: before 1.6.0 about one 8x8 puzzle in five had
+-- several answers, and most needed guessing. Each tiling is now handed to
+-- the human-style solver (logicSolve) and kept only if it solves to the
+-- end, which proves it is the only answer and needs no trial and error.
+-- About 19 tilings in 20 pass at once. If ATTEMPTS ever run out, the last
+-- tiling gets more centres: the galaxy of a cell the solver could not
+-- decide is split into one-cell galaxies, until it solves (a grid of
+-- one-cell galaxies solves itself, so this always ends). Bounded by
+-- counts, never the clock: same seed, same puzzle on every device.
+-- on_progress(fraction), optional: called after every tiling.
+function GalaxiesBoard:generate(on_progress)
+    local n = self.n
+    local centers, region, gcells
+    local solved, t2, owner -- luacheck: ignore t2
+    for attempt = 1, GalaxiesBoard.ATTEMPTS do
+        centers, region, gcells = generateGalaxies(n)
+        solved, t2, owner = logicSolve(n, centers, 2)
+        if on_progress then on_progress(attempt / GalaxiesBoard.ATTEMPTS) end
+        if solved then break end
+    end
+    while not solved do
+        local split
+        for i = 1, n * n do
+            if owner[i] == 0 then
+                split = region[math.floor((i - 1) / n) + 1][(i - 1) % n + 1]
+                break
+            end
+        end
+        local new_centers, new_cells = {}, {}
+        local renum = {}
+        for g = 1, #centers do
+            if g ~= split then
+                new_centers[#new_centers + 1] = centers[g]
+                new_cells[#new_centers] = gcells[g]
+                renum[g] = #new_centers
+            end
+        end
+        for r = 1, n do
+            for c = 1, n do
+                if region[r][c] == split then
+                    new_centers[#new_centers + 1] = { 2 * r - 1, 2 * c - 1 }
+                    new_cells[#new_centers] = { { r, c } }
+                    region[r][c] = #new_centers
+                else
+                    region[r][c] = renum[region[r][c]]
+                end
+            end
+        end
+        centers, gcells = new_centers, new_cells
+        solved, t2, owner = logicSolve(n, centers, 2)
+    end
 
     self.centers         = centers
     self.num_galaxies    = #centers
@@ -289,9 +603,11 @@ function GalaxiesBoard:_checkWin()
             end
         end
     end
-    -- Each galaxy must be rotationally symmetric
+    -- Each galaxy must be rotationally symmetric, and in one piece (1.6.0:
+    -- the rules now say so; a galaxy split in two halves was accepted)
     for g = 1, self.num_galaxies do
-        if not regionIsSymmetric(self.user_region, self.centers, g, n) then
+        if not regionIsSymmetric(self.user_region, self.centers, g, n)
+            or not regionIsConnected(self.user_region, g, n) then
             self.won = false
             return
         end
@@ -394,6 +710,9 @@ function GalaxiesBoard:load(data)
 end
 
 GalaxiesBoard.SIZES     = SIZES
+GalaxiesBoard._logicSolve      = logicSolve       -- for the specs
+GalaxiesBoard._countSolutions  = countSolutions
+GalaxiesBoard._generateGalaxies = generateGalaxies
 GalaxiesBoard.DEFAULT_N = DEFAULT_N
 
 return GalaxiesBoard
