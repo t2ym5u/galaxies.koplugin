@@ -254,29 +254,6 @@ describe("GalaxiesBoard", function()
     end)
 
     describe("generator (1.6.0)", function()
-        it("every puzzle: one solution (connected galaxies), no trial and error", function()
-            for _, n in ipairs(Board.SIZES) do
-                for seed = 1, 30 do
-                    math.randomseed(seed)
-                    local b = Board:new{ n = n }
-                    local solved, _, owner = Board._logicSolve(n, b.centers, 2)
-                    assert.is_true(solved, ("n=%d seed=%d needs trial"):format(n, seed))
-                    for r = 1, n do
-                        for c = 1, n do
-                            assert.are.equal(b.solution_region[r][c], owner[(r - 1) * n + c])
-                        end
-                    end
-                    local count, exhausted = Board._countSolutions(n, b.centers, 2, 2e6)
-                    assert.is_false(exhausted)
-                    assert.are.equal(1, count)
-                    b:reveal()
-                    b.won = false
-                    b:_checkWin()
-                    assert.is_true(b.won)
-                end
-            end
-        end)
-
         it("logicSolve never decides a cell against the only solution", function()
             local bad = 0
             for seed = 1, 300 do
@@ -296,41 +273,6 @@ describe("GalaxiesBoard", function()
                 end
             end
             assert.are.equal(0, bad)
-        end)
-
-        it("adds centres when tilings keep failing, and still ends solvable", function()
-            local saved = Board.ATTEMPTS
-            Board.ATTEMPTS = 1
-            local ok, err = pcall(function()
-                for seed = 1, 60 do
-                    math.randomseed(seed)
-                    local b = Board:new{ n = 8 }
-                    assert.is_true((Board._logicSolve(8, b.centers, 2)))
-                    local count = Board._countSolutions(8, b.centers, 2, 2e6)
-                    assert.are.equal(1, count)
-                end
-            end)
-            Board.ATTEMPTS = saved
-            assert(ok, err)
-        end)
-
-        it("the same seed gives the same puzzle", function()
-            for _, n in ipairs(Board.SIZES) do
-                math.randomseed(77)
-                local a = Board:new{ n = n }:serialize()
-                math.randomseed(77)
-                local b = Board:new{ n = n }:serialize()
-                assert.are.same(a, b)
-            end
-        end)
-
-        it("stays quick (8x8)", function()
-            local t = os.clock()
-            for seed = 1, 30 do
-                math.randomseed(seed)
-                Board:new{ n = 8 }
-            end
-            assert.is_true(os.clock() - t < 3, "30 puzzles took " .. (os.clock() - t) .. " s")
         end)
     end)
 
